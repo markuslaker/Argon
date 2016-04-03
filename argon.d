@@ -18,9 +18,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 +/
 
-import std.algorithm.iteration;
-import std.algorithm.searching;
-import std.algorithm.sorting;
+import std.algorithm;
 import std.array;
 import std.conv;
 import std.regex;
@@ -483,7 +481,9 @@ private:
                                                 0;
         }
 
-        auto toString() const {
+        @trusted auto toString() const {
+            // In older versions of D, this method must be @trusted in order to
+            // call std.conv.to.
             return minval == maxval?
                    minval.to!string:
                    text("between ", minval, " and ", maxval);
@@ -514,7 +514,9 @@ protected:
         super(name, true, p_indicator, p_receiver, dfault);
     }
 
-    final AddRangeRaw(in Num min, in Num max) {
+    @trusted final AddRangeRaw(in Num min, in Num max) {
+    	// In older versions of D, this method must be trusted in order to call
+    	// std.algorithm.sort.
         vranges ~= Range(min, max);
         sort(vranges);
         MergeRanges;
@@ -1240,11 +1242,15 @@ private:
     string *p_error;
     File *p_receiver;
 
-    auto OpenOrThrow(in string name) {
+    @trusted auto OpenOrThrow(in string name) {
+        // In older versions of D, this method must be @trusted in order to
+        // create or destroy a File.
         *p_receiver = File(name, open_mode);
     }
 
-    auto OpenRobustly(in string name) {
+    @trusted auto OpenRobustly(in string name) {
+        // In older versions of D, this method must be @trusted in order to
+        // create or destroy a File.
         *p_error = "";
         try
             OpenOrThrow(name);
@@ -2149,7 +2155,7 @@ public:
     final BuildSyntaxSummary() const {
         return fargs.filter!(farg => farg.IsDocumented)
                     .map!(farg => farg.BuildSyntaxElement)
-                    .join(' ');
+                    .join(" ");
     }
 
     /++
@@ -2313,7 +2319,9 @@ private:
         MoveToNextAarg;
     }
 
-    auto ParseLong() {
+    @trusted auto ParseLong() {
+    	// In older versions of D, this method must be @trusted in order to
+    	// call findSplit.
         const token = aargs[0][2..$];
         if (token.empty) {
             seen_dbl_dash = true;
@@ -2464,7 +2472,9 @@ unittest {
             Run(args);
         }
 
-        auto FailRun(string[] aargs, in string want_error) {
+        @trusted auto FailRun(string[] aargs, in string want_error) {
+            // In older versions of D, this method must be @trusted in order to
+            // call std.stdio.writeln.
             try {
                 aargs = [fake_program_name] ~ aargs;
                 Parse(aargs);
@@ -3113,7 +3123,11 @@ unittest {
 
     // Test File arguments:
 
-    class Fields01: TestableHandler {
+    @trusted class Fields01: TestableHandler {
+        // In older versions of D, the implicitly generated ~this(), being
+        // @safe, can't call std.stdio.File.~this().  Adding a @trusted ~this()
+        // seems to make no difference.  Therefore, in older versions of D, this
+        // entire class seems to need to be @trusted.
         File alpha, bravo, charlie, delta, echo, foxtrot;
         string alpha_error, bravo_error, charlie_error, delta_error, echo_error, foxtrot_error;
         Indicator got_alpha, got_bravo, got_charlie, got_delta, got_echo, got_foxtrot;
@@ -3561,8 +3575,11 @@ unittest {
 
             // Without stored captures:
             Named("bravo", bravo, "".to!Str)    // A person's name: a capital letter, followed by some small letters
-                .AddRegex(` ^ (?P<INITIAL> \p{uppercase} ) `.to!Str, "x", "The name must start with a capital letter").Snip
-                .AddRegex(` ^ \p{lowercase}* $             `.to!Str, "x", "The initial, {0:INITIAL}, must be followed by nothing but small letters");
+                // The properties in the next two regexes are uppercase and
+                // lowercase letters.  Older versions of D don't accept
+                // \p{uppercase} and\p{lowercase}. 
+                .AddRegex(` ^ (?P<INITIAL> \p{Lu} ) `.to!Str, "x", "The name must start with a capital letter").Snip
+                .AddRegex(` ^ \p{Ll}* $             `.to!Str, "x", "The initial, {0:INITIAL}, must be followed by nothing but small letters");
         }
     }
 
