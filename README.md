@@ -131,7 +131,7 @@ Features for your users:
 * The `--` options terminator, which forces all subsequent tokens to be interpreted as positional arguments
 * The ability to abbreviate option names and `enum` values
 * The ability to specify numeric arguments in binary, octal or hex as an alternative to decimal
-* Better error messages than it would be worth writing for most programs))
+* Better error messages than it would be worth writing for most programs
 
 Some of this functionality is available in `std.getopt`; some isn't.  Stick with `getopt` if you need the following features, which are not currently implemented in Argon:
 
