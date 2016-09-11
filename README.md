@@ -104,6 +104,7 @@ int main(string[] args) {
 There's plenty more that Argon can do.
 
 Features for you:
+
 * You can mix mandatory and optional arguments
 * You can freely mix named arguments (specified with `--option` syntax) and positional arguments (defined by their position on the command line)
 * Argon has first-class support for positional arguments: they're validated, range-checked and deposited into type-safe variables; you don't end up picking them out of `argv` and converting them manually after named arguments have been removed
@@ -123,6 +124,7 @@ Features for you:
 * Argon gently encourages you to move your command-line processing into a class of its own for better modularity and lifetime-management, although you *can* use it without deriving a class if you wish
 
 Features for your users:
+
 * The ability to abbreviate option names
 * Flexible syntax: a user can say `-t5`, `-t=5` or `-t 5`
 * Bundling of short names, enabled by default, so that `-a -b -c 5` can be written as `-abc5`
