@@ -18,7 +18,9 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 +/
 
-import std.algorithm;
+import std.algorithm.iteration;
+import std.algorithm.searching;
+import std.algorithm.sorting;
 import std.array;
 import std.conv;
 import std.regex;
@@ -253,20 +255,7 @@ public:
 
         MarkSeen;
     }
-}
 
-/++
- + This template mixin adds methods that apply to individual arguments and
- + which return `this` so that they can conveniently be daisychained.
- +/
-
-// Some methods return `this' so that they can be chained.  We need such methods
-// to return a reference to the most-derived type, rather than to FArgBase, so
-// that a caller can use such a reference to call a method that exists only in
-// the most-derived class.  We therefore can't define them in the base class,
-// and must use a template mixin.
-
-mixin template FArgCommon() {
     /++
      + Adds a single-letter short name (not necessarily Ascii) to avoid the need
      + for users to type out the long name.
@@ -275,18 +264,18 @@ mixin template FArgCommon() {
      + doesn't need one, because its name is never typed in by users.
      +/
 
-    auto Short(in dchar snm) {
+    auto Short(this T) (in dchar snm) {
         assert(!positional,           "A positional argument can't have a short name");
         assert(!std.uni.isWhite(snm), "An option's short name can't be a whitespace character");
         assert(snm != '-',            "An option's short name can't be a dash, because '--' would be interpreted as the end-of-options token");
         assert(snm != '=',            "An option's short name can't be an equals sign, because '=' is used to conjoin values with short option names and would be confusing with bundling enabled");
         SetShortName(snm);
-        return this;
+        return cast(T) this;
     }
 
     /// Sugar for adding a single-character short name:
-    auto opCall(in dchar snm) {
-        return Short(snm);
+    auto opCall(this T) (in dchar snm) {
+        return cast(T) Short(snm);
     }
 
     /++
@@ -304,24 +293,23 @@ mixin template FArgCommon() {
      + as a description.
      +/
 
-    auto Description(in string desc) {
+    auto Description(this T) (in string desc) {
         assert(!positional, "A positional argument doesn't need a description: use the ordinary name field for that");
         FArgBase.SetDescription(desc);
-        return this;
+        return cast(T) this;
     }
 
     /// Sugar for adding a description:
-    auto opCall(in string desc) {
-        return Description(desc);
+    auto opCall(this T) (in string desc) {
+        return cast(T) Description(desc);
     }
 
     /// Excludes an argument from auto-generated syntax summaries:
-    auto Undocumented() {
+    auto Undocumented(this T) () {
         MarkUndocumented();
-        return this;
+        return cast(T) this;
     }
 }
-
 
 /++
  + Adds the ability to set an end-of-line default and return this.
@@ -363,8 +351,6 @@ mixin template CanSetEolDefault() {
 // Holds a FArg for a Boolean AArg.
 
 class BoolFArg: HasReceiver!bool {
-    mixin FArgCommon;
-
     this(in string name, bool *p_receiver, bool dfault) {
         super(name, false, null, p_receiver, dfault);
     }
@@ -481,9 +467,7 @@ private:
                                                 0;
         }
 
-        @trusted auto toString() const {
-            // In older versions of D, this method must be @trusted in order to
-            // call std.conv.to.
+        auto toString() const {
             return minval == maxval?
                    minval.to!string:
                    text("between ", minval, " and ", maxval);
@@ -514,9 +498,7 @@ protected:
         super(name, true, p_indicator, p_receiver, dfault);
     }
 
-    @trusted final AddRangeRaw(in Num min, in Num max) {
-    	// In older versions of D, this method must be trusted in order to call
-    	// std.algorithm.sort.
+    final AddRangeRaw(in Num min, in Num max) {
         vranges ~= Range(min, max);
         sort(vranges);
         MergeRanges;
@@ -585,7 +567,6 @@ protected:
     }
 
 public:
-    mixin FArgCommon;
     mixin CanSetEolDefault;
 
     this(in string name, Num *p_receiver, Indicator *p_indicator, in Num dfault) {
@@ -715,7 +696,6 @@ public:
  +/
 
 class FloatingFArg(Num): NumericFArgBase!(Num, 0.0) if (isFloatingPoint!Num) {
-    mixin FArgCommon;
     mixin CanSetEolDefault;
 
     this(in string name, Num *p_receiver, Indicator *p_indicator, in Num dfault) {
@@ -807,7 +787,6 @@ protected:
     }
 
 public:
-    mixin FArgCommon;
     mixin CanSetEolDefault;
 
     this(in string name, E *p_receiver, Indicator *p_indicator, in E dfault) {
@@ -899,8 +878,6 @@ public:
 
 class IncrementalFArg(Num): HasReceiver!Num if (isIntegral!Num) {
 public:
-    mixin FArgCommon;
-
     this(in string name, Num *pr) {
         super(name, false, null, pr, Num.init);
         MarkIncremental;
@@ -1021,7 +998,6 @@ private:
     AllCaps *p_allcaps;
 
 public:
-    mixin FArgCommon;
     mixin CanSetEolDefault;
 
     this(in string name, Str *p_receiver, Indicator *p_indicator, in Str dfault) {
@@ -1242,15 +1218,11 @@ private:
     string *p_error;
     File *p_receiver;
 
-    @trusted auto OpenOrThrow(in string name) {
-        // In older versions of D, this method must be @trusted in order to
-        // create or destroy a File.
+    auto OpenOrThrow(in string name) {
         *p_receiver = File(name, open_mode);
     }
 
-    @trusted auto OpenRobustly(in string name) {
-        // In older versions of D, this method must be @trusted in order to
-        // create or destroy a File.
+    auto OpenRobustly(in string name) {
         *p_error = "";
         try
             OpenOrThrow(name);
@@ -1261,8 +1233,6 @@ private:
     }
 
 public:
-    mixin FArgCommon;
-
     this(in string option_name, File *pr, Indicator *p_indicator, in string mode, string *pe, in string df) {
         super(option_name, true, p_indicator);
         open_mode  = mode;
@@ -1759,8 +1729,8 @@ public:
      + switch names.
      +
      + The user can use any unambiguous abbreviation of the option _name.  If
-     + you wish to provide a single-character short _name, use one of the
-     + methods in FArgCommon.
+     + you wish to provide a single-character short _name, call Short() or
+     + opCall(char).
      +
      + What are named and positional arguments?  Consider the Gnu Linux command
      + `mkfs --verbose -t ext4 /dev/sda2`.  This command has one Boolean option
@@ -2155,7 +2125,7 @@ public:
     final BuildSyntaxSummary() const {
         return fargs.filter!(farg => farg.IsDocumented)
                     .map!(farg => farg.BuildSyntaxElement)
-                    .join(" ");
+                    .join(' ');
     }
 
     /++
@@ -2319,9 +2289,7 @@ private:
         MoveToNextAarg;
     }
 
-    @trusted auto ParseLong() {
-    	// In older versions of D, this method must be @trusted in order to
-    	// call findSplit.
+    auto ParseLong() {
         const token = aargs[0][2..$];
         if (token.empty) {
             seen_dbl_dash = true;
@@ -2472,9 +2440,7 @@ unittest {
             Run(args);
         }
 
-        @trusted auto FailRun(string[] aargs, in string want_error) {
-            // In older versions of D, this method must be @trusted in order to
-            // call std.stdio.writeln.
+        auto FailRun(string[] aargs, in string want_error) {
             try {
                 aargs = [fake_program_name] ~ aargs;
                 Parse(aargs);
@@ -3123,11 +3089,7 @@ unittest {
 
     // Test File arguments:
 
-    @trusted class Fields01: TestableHandler {
-        // In older versions of D, the implicitly generated ~this(), being
-        // @safe, can't call std.stdio.File.~this().  Adding a @trusted ~this()
-        // seems to make no difference.  Therefore, in older versions of D, this
-        // entire class seems to need to be @trusted.
+    class Fields01: TestableHandler {
         File alpha, bravo, charlie, delta, echo, foxtrot;
         string alpha_error, bravo_error, charlie_error, delta_error, echo_error, foxtrot_error;
         Indicator got_alpha, got_bravo, got_charlie, got_delta, got_echo, got_foxtrot;
@@ -3575,11 +3537,8 @@ unittest {
 
             // Without stored captures:
             Named("bravo", bravo, "".to!Str)    // A person's name: a capital letter, followed by some small letters
-                // The properties in the next two regexes are uppercase and
-                // lowercase letters.  Older versions of D don't accept
-                // \p{uppercase} and\p{lowercase}. 
-                .AddRegex(` ^ (?P<INITIAL> \p{Lu} ) `.to!Str, "x", "The name must start with a capital letter").Snip
-                .AddRegex(` ^ \p{Ll}* $             `.to!Str, "x", "The initial, {0:INITIAL}, must be followed by nothing but small letters");
+                .AddRegex(` ^ (?P<INITIAL> \p{uppercase} ) `.to!Str, "x", "The name must start with a capital letter").Snip
+                .AddRegex(` ^ \p{lowercase}* $             `.to!Str, "x", "The initial, {0:INITIAL}, must be followed by nothing but small letters");
         }
     }
 
