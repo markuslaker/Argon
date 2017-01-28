@@ -904,21 +904,8 @@ template BareCharType(Str) {
         alias ElementType = Chr;
     }
 
-    // Strip off qualifiers:
-    template Unqualified(T: immutable U, U) {
-        alias Unqualified = U;
-    }
-
-    template Unqualified(T: const U, U) {
-        alias Unqualified = U;
-    }
-
-    template Unqualified(T) {
-        alias Unqualified = T;
-    }
-
     // Result: element type without qualifiers:
-    alias BareCharType = Unqualified!(ElementType!Str);
+    alias BareCharType = Unqual!(ElementType!Str);
 }
 
 // This class holds one regex and error message, which will be applied to an
