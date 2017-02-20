@@ -18,11 +18,13 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 +/
 
+import core.exception;
 import std.algorithm.iteration;
 import std.algorithm.searching;
 import std.algorithm.sorting;
 import std.array;
 import std.conv;
+import std.exception;
 import std.regex;
 import std.stdio;
 import std.traits;
@@ -62,6 +64,7 @@ class ParseException: Exception {
 enum Indicator {
     NotSeen,            /// The user didn't specify the argument
     UsedEolDefault,     /// The user specified the named option at the end of the line and relied on the end-of-line default
+    UsedEqualsDefault,  /// The user specified the named option but didn't follow it with `=' and a value
     Seen                /// The user specified the argument
 }
 
@@ -82,6 +85,7 @@ private:
     bool mandatory;                 // If true, some AArg must match this FArg or parsing will fail
     bool documented = true;         // True if this FArg should appear in syntax summaries
     bool has_eol_default;           // Has an end-of-line default value
+    bool has_equals_default;        // Any actual arg must be attached with `=', and --switch without `=' is a shorthand for equals_default
     bool is_incremental;            // Is an incremental argument, which increments its receiver each time it's seen
 
     auto SetSeen(in Indicator s) {
@@ -102,12 +106,22 @@ protected:
 
     auto MarkSeen()                     { SetSeen(Indicator.Seen); }
     auto MarkSeenWithEolDefault()       { SetSeen(Indicator.UsedEolDefault); }
+    auto MarkSeenWithEqualsDefault()    { SetSeen(Indicator.UsedEqualsDefault); }
     auto MarkUnseen()                   { SetSeen(Indicator.NotSeen); }
     auto SetShortName(in dchar snm)     { shortname       = snm; }
     auto SetDescription(in string desc) { description     = desc; }
     auto MarkUndocumented()             { documented      = false; }
-    auto MarkEolDefault()               { has_eol_default = true; }
     auto MarkIncremental()              { is_incremental  = true; }
+
+    auto MarkEolDefault() {
+        assert(!HasEqualsDefault, "A single argument can't have both an end-of-line default and an equals default"); 
+        has_eol_default = true;
+    }
+
+    auto MarkEqualsDefault()            { 
+        assert(!HasEolDefault, "A single argument can't have both an end-of-line default and an equals default"); 
+        has_equals_default = true;
+    }
 
 public:
     auto GetFirstName() const           { return names[0]; }
@@ -123,6 +137,7 @@ public:
     auto IsDocumented() const           { return documented; }
     auto HasEolDefault() const          { return has_eol_default; }
     auto IsIncremental() const          { return is_incremental; }
+    auto HasEqualsDefault() const       { return has_equals_default; }
 
     // Indicate that this can be a positional argument:
     auto MarkPositional()               { positional = true; }
@@ -138,8 +153,9 @@ public:
 
     abstract void See(in string aarg, in InvokedBy);
     abstract void SeeEolDefault();
+    abstract void SeeEqualsDefault();
 
-    // For BoolFArg and IncrementalFArg only:
+    // Overridden by BoolFArg and IncrementalFArg only:
     void See() {
         assert(false);
     }
@@ -216,7 +232,8 @@ public:
 class HasReceiver(FArg): FArgBase {
 protected:
     FArg *p_receiver;
-    FArg dfault, eol_default;
+    FArg dfault;
+    FArg special_default;   // Either an EOL default or an equals default -- no argument can have both
 
     this(in string name, in bool needs_aarg, Indicator *p_indicator, FArg *pr, FArg df) {
         super(name, needs_aarg, p_indicator);
@@ -232,14 +249,25 @@ protected:
     abstract FArg Parse(in char[] aarg, in InvokedBy invocation);
 
     override void SeeEolDefault() {
-        *p_receiver = eol_default;
+        *p_receiver = special_default;
         MarkSeenWithEolDefault;
+    }
+
+    override void SeeEqualsDefault() {
+        *p_receiver = special_default;
+        MarkSeenWithEqualsDefault;
     }
 
     void SetEolDefault(FArg def) {
         assert(IsNamed, "Only a named option can have an end-of-line default; for a positional argument, use an ordinary default");
-        eol_default = def;
+        special_default = def;
         MarkEolDefault;
+    }
+
+    void SetEqualsDefault(FArg def) {
+        assert(IsNamed, "Only a named option can have an equals default; for a positional argument, use an ordinary default");
+        special_default = def;
+        MarkEqualsDefault;
     }
 
 public:
@@ -312,12 +340,12 @@ public:
 }
 
 /++
- + Adds the ability to set an end-of-line default and return this.
+ + Adds the ability to set an end-of-line and equals defaults and return this.
  + The only FArg classes that don't get this are Booleans (for which the idea of
  + an EOL default makes no sense) and File (whose FArg makes its own provision).
  +/
 
-mixin template CanSetEolDefault() {
+mixin template CanSetSpecialDefaults() {
     /++
      + Provides an end-of-line default for a named option.  This default is
      + used only if the user specifies the option name as the last token on
@@ -346,6 +374,23 @@ mixin template CanSetEolDefault() {
         SetEolDefault(def);
         return this;
     }
+
+    /++
+     + Provides an equals default for a named option, which works like
+     + grep's --colour option:
+     +
+     + * Omitting --colour is equivalent to --colour=none
+     +
+     + * Supplying --colour on its own is equivalent to --colour=auto
+     +
+     + * Any other value must be attached to the --colour switch by one equals
+     +   sign and no space, as in --colour=always
+     +/
+
+    auto EqualsDefault(T) (T def) {
+        SetEqualsDefault(def);
+        return this;
+    }    
 }
 
 // Holds a FArg for a Boolean AArg.
@@ -567,7 +612,7 @@ protected:
     }
 
 public:
-    mixin CanSetEolDefault;
+    mixin CanSetSpecialDefaults;
 
     this(in string name, Num *p_receiver, Indicator *p_indicator, in Num dfault) {
         super(name, p_receiver, p_indicator, dfault);
@@ -696,7 +741,7 @@ public:
  +/
 
 class FloatingFArg(Num): NumericFArgBase!(Num, 0.0) if (isFloatingPoint!Num) {
-    mixin CanSetEolDefault;
+    mixin CanSetSpecialDefaults;
 
     this(in string name, Num *p_receiver, Indicator *p_indicator, in Num dfault) {
         super(name, p_receiver, p_indicator, dfault);
@@ -787,7 +832,7 @@ protected:
     }
 
 public:
-    mixin CanSetEolDefault;
+    mixin CanSetSpecialDefaults;
 
     this(in string name, E *p_receiver, Indicator *p_indicator, in E dfault) {
         super(name, true, p_indicator, p_receiver, dfault);
@@ -874,6 +919,23 @@ public:
     ga1.SeeEolDefault;
     assert(girl  == Girls.Françoise);
     assert(gseen == Indicator.UsedEolDefault);
+
+    // Can't have an EOL default and an equals default for the same arg:
+    assertThrown!AssertError(ga1.SetEqualsDefault(Girls.Zoë));
+
+    // Equals defaults:
+    auto ga2 = new GirlArg("name", &girl, &gseen, Girls.init);
+    ga2.EqualsDefault(Girls.Françoise);
+    ga1.SetFArgToDefault;
+    assert(girl  == Girls.init);
+    assert(gseen == Indicator.NotSeen);
+
+    ga2.SeeEqualsDefault;
+    assert(girl  == Girls.Françoise);
+    assert(gseen == Indicator.UsedEqualsDefault);
+
+    // Can't have an EOL default and an equals default for the same arg:
+    assertThrown!AssertError(ga2.SetEolDefault(Girls.Zoë));
 }
 
 class IncrementalFArg(Num): HasReceiver!Num if (isIntegral!Num) {
@@ -985,7 +1047,7 @@ private:
     AllCaps *p_allcaps;
 
 public:
-    mixin CanSetEolDefault;
+    mixin CanSetSpecialDefaults;
 
     this(in string name, Str *p_receiver, Indicator *p_indicator, in Str dfault) {
         super(name, true, p_indicator, p_receiver, dfault.to!Str);
@@ -1201,7 +1263,7 @@ protected:
 class FileFArg: FArgBase {
 private:
     const string open_mode;
-    string filename, dfault, eol_default;
+    string filename, dfault, special_default;
     string *p_error;
     File *p_receiver;
 
@@ -1260,10 +1322,20 @@ public:
      +/
 
     auto EolDefault(in string ed) {
-        assert(!ed.empty, "The end-of-line default filename can't be empty");
-        assert(IsNamed,   "Only a named option can have an end-of-line default; for a positional argument, use an ordinary default");
-        eol_default = ed;
+        assert(!ed.empty,         "The end-of-line default filename can't be empty");
+        assert(IsNamed,           "Only a named option can have an end-of-line default; for a positional argument, use an ordinary default");
+        assert(!HasEqualsDefault, "No argument can have both an equals default and and end-of-line default");
+        special_default = ed;
         MarkEolDefault;
+        return this;
+    }
+
+    auto EqualsDefault(in string ed) {
+        assert(!ed.empty,      "The equals default filename can't be empty");
+        assert(IsNamed,        "Only a named option can have an equals default; for a positional argument, use an ordinary default");
+        assert(!HasEolDefault, "No argument can have both an equals default and and end-of-line default");
+        special_default = ed;
+        MarkEqualsDefault;
         return this;
     }
 
@@ -1276,8 +1348,13 @@ public:
     }
 
     final override void SeeEolDefault() {
-        filename = eol_default;
+        filename = special_default;
         MarkSeenWithEolDefault;
+    }
+
+    final override void SeeEqualsDefault() {
+        filename = special_default;
+        MarkSeenWithEqualsDefault;
     }
 
     final override void SetFArgToDefault() {
@@ -1370,7 +1447,7 @@ public:
             fa.Transform;
             assert(false, "FileFArg should have failed when trying to open nonexistent file " ~ filename ~ " for input");
         }
-        catch { }
+        catch (Throwable) { }
 
         assert(!file.isOpen);
     }
@@ -1416,14 +1493,37 @@ public:
     File file0;
     auto fa0 = new FileFArg("file", &file0, null, "r", null, "");
     assert(!fa0.HasEolDefault);
+    assert(!fa0.HasEqualsDefault);
     assert(!file0.isOpen);
     fa0.EolDefault("-");
     assert(fa0.HasEolDefault);
+    assert(!fa0.HasEqualsDefault);
     assert(!file0.isOpen);
     fa0.SeeEolDefault;
     fa0.Transform;
     assert(file0.isOpen);
     assert(file0 == stdin);
+
+    // A single arg can't have special defaults of both kinds:
+    assertThrown!AssertError(fa0.EqualsDefault("-"));
+
+    // Equals default:
+    File file1;
+    auto fa1 = new FileFArg("file", &file1, null, "r", null, "");
+    assert(!fa1.HasEolDefault);
+    assert(!fa1.HasEqualsDefault);
+    assert(!file1.isOpen);
+    fa1.EqualsDefault("-");
+    assert(!fa1.HasEolDefault);
+    assert(fa1.HasEqualsDefault);
+    assert(!file1.isOpen);
+    fa1.SeeEqualsDefault;
+    fa1.Transform;
+    assert(file1.isOpen);
+    assert(file1 == stdin);
+
+    // A single arg can't have special defaults of both kinds:
+    assertThrown!AssertError(fa1.EolDefault("-"));
 }
 
 // An argument group is an object that restricts the combinations of arguments
@@ -1838,7 +1938,8 @@ public:
 
     /++
      + Gives your program an optional named argument that opens a file.  The
-     + indicator becomes `Indicator.UsedEolDefault` or `Indicator.Seen` if the
+     + indicator becomes `Indicator.UsedEolDefault`,
+     + `Indicator.UsedEqualsDefault` or `Indicator.Seen` if the
      + user specifies a filename, even if the file can't be opened.
      +
      + If return_error_msg_can_be_null is null, failure to open the file will
@@ -1937,7 +2038,8 @@ public:
 
     /++
      + Gives your program an optional positional argument that opens a file.
-     + The indicator becomes `Indicator.UsedEolDefault` or `Indicator.Seen` if
+     + The indicator becomes `Indicator.UsedEolDefault`,
+     + `Indicator.UsedEqualsDefault` or `Indicator.Seen` if
      + the user supplies this option, even if the file can't be opened.  If
      + return_error_msg_can_be_null is null, failure to open the file will
      + propagate the exception thrown by `struct File`; otherwise, the exception
@@ -2254,6 +2356,8 @@ private:
     auto SeeLongAArg(FArgBase farg, in bool has_aarg, in string arg_name_from_user, string aarg_if_any) {
         if (has_aarg)
             farg.See(aarg_if_any, InvokedBy.LongName);
+        else if (farg.HasEqualsDefault)
+            farg.SeeEqualsDefault;
         else {
             MoveToNextAarg;
             if (aargs.empty) {
@@ -2311,13 +2415,15 @@ private:
             immutable shortname = aarg.front;
             auto farg = FindUnseenNamedFarg(shortname);
             aarg.popFront;
-            if (farg.NeedsAArg) {
+
+            immutable conjoined = aarg.startsWith('=');
+            if (farg.HasEqualsDefault && !conjoined)
+                farg.SeeEqualsDefault;
+            else if (farg.NeedsAArg) {
                 SeeShortArg(farg, shortname, aarg);
                 return;
             }
-
-            immutable conjoined = !aarg.empty && aarg.front == '=';
-            if (conjoined) {
+            else if (conjoined) {
                 if (farg.IsIncremental)
                     throw new ParseException("The -", shortname, " option doesn't accept an argument");
                 else {
@@ -2325,8 +2431,8 @@ private:
                     break;
                 }
             }
-
-            farg.See();
+            else
+                farg.See();
 
             if (aarg.empty)
                 break;
@@ -2411,7 +2517,7 @@ unittest {
     enum Colours {black, red, green, yellow, blue, magenta, cyan, white}
     immutable fake_program_name = "argon";
 
-    class TestableHandler: Handler {
+    @safe class TestableHandler: Handler {
         auto Run(ref string[] aargs) {
             aargs = [fake_program_name] ~ aargs;
             Parse(aargs);
@@ -2451,7 +2557,7 @@ unittest {
         }
     }
 
-    class Fields00: TestableHandler {
+    @safe class Fields00: TestableHandler {
         int alpha, bravo, charlie, delta;
         double echo, foxtrot;
         Colours colour;
@@ -2465,7 +2571,7 @@ unittest {
         }
     }
 
-    class CP00: Fields00 {
+    @safe class CP00: Fields00 {
         this() {
             // Test the long way of specifying short names:
             Named      ("alpha|able|alfie|aah", alpha,   5)        .Short('a');
@@ -3074,6 +3180,26 @@ unittest {
         FailRun("-a0 -b2 -c2 -w", "Please specify exactly 1 of the --alpha option and the --twist option");
     }
 
+    // Test EOL defaults:
+
+    class CP08: Fields00 {
+        this() {
+            Named("alpha",   alpha,   1)  ('a').EqualsDefault(5);
+            Named("bravo",   bravo,   2)  ('b').EqualsDefault(6);
+            Named("charlie", charlie, 3)  ('c').EqualsDefault(7);
+            Named("delta",   delta,   4)  ('d').EqualsDefault(8);
+        }
+    }
+
+    with (new CP08) {
+        auto eq_aargs = ["fake-program-name", "--alpha", "--bravo=12", "-cd=13"];
+        Parse(eq_aargs);
+        assert(alpha   ==  5);
+        assert(bravo   == 12);
+        assert(charlie ==  7);
+        assert(delta   == 13);
+    }
+
     // Test File arguments:
 
     class Fields01: TestableHandler {
@@ -3561,7 +3687,7 @@ unittest {
     test_regexen!(dchar, dstring) ();
 
     // Prove that class Handler destroys its state if we don't call Preserve():
-    class Fields03: TestableHandler {
+    @safe class Fields03: TestableHandler {
         int alpha;
 
         this() {
