@@ -139,6 +139,60 @@ public:
     auto IsIncremental() const          { return is_incremental; }
     auto HasEqualsDefault() const       { return has_equals_default; }
 
+    /++
+     + Adds a single-letter short name (not necessarily Ascii) to avoid the need
+     + for users to type out the long name.
+     +
+     + Only a named option can have a short name.  A positional argument
+     + doesn't need one, because its name is never typed in by users.
+     +/
+
+    auto Short(this T) (in dchar snm) {
+        assert(!positional,           "A positional argument can't have a short name");
+        assert(!std.uni.isWhite(snm), "An option's short name can't be a whitespace character");
+        assert(snm != '-',            "An option's short name can't be a dash, because '--' would be interpreted as the end-of-options token");
+        assert(snm != '=',            "An option's short name can't be an equals sign, because '=' is used to conjoin values with short option names and would be confusing with bundling enabled");
+        SetShortName(snm);
+        return cast(T) this;
+    }
+
+    /// Sugar for adding a single-character short name:
+    auto opCall(this T) (in dchar snm) {
+        return cast(T) Short(snm);
+    }
+
+    /++
+     + Adds a description, which is used in error messages.  It's also used when
+     + syntax summaries are auto-generated, so that we can generate something
+     + maximally descriptive like `--windows <number of windows>`.  Without
+     + this, we'd either generate the somewhat opaque `--windows <windows>`
+     + or have to impose extra typing on the user by renaming the option as
+     + `--number-of-windows`.
+     +
+     + The description needn't be Ascii.
+     +
+     + Only a named option can have a description.  For a positional
+     + argument, the name is never typed by the user and it does double duty
+     + as a description.
+     +/
+
+    auto Description(this T) (in string desc) {
+        assert(!positional, "A positional argument doesn't need a description: use the ordinary name field for that");
+        FArgBase.SetDescription(desc);
+        return cast(T) this;
+    }
+
+    /// Sugar for adding a description:
+    auto opCall(this T) (in string desc) {
+        return cast(T) Description(desc);
+    }
+
+    /// Excludes an argument from auto-generated syntax summaries:
+    auto Undocumented(this T) () {
+        MarkUndocumented();
+        return cast(T) this;
+    }
+
     // Indicate that this can be a positional argument:
     auto MarkPositional()               { positional = true; }
 
@@ -282,60 +336,6 @@ public:
             throw new ParseException(msg);
 
         MarkSeen;
-    }
-
-    /++
-     + Adds a single-letter short name (not necessarily Ascii) to avoid the need
-     + for users to type out the long name.
-     +
-     + Only a named option can have a short name.  A positional argument
-     + doesn't need one, because its name is never typed in by users.
-     +/
-
-    auto Short(this T) (in dchar snm) {
-        assert(!positional,           "A positional argument can't have a short name");
-        assert(!std.uni.isWhite(snm), "An option's short name can't be a whitespace character");
-        assert(snm != '-',            "An option's short name can't be a dash, because '--' would be interpreted as the end-of-options token");
-        assert(snm != '=',            "An option's short name can't be an equals sign, because '=' is used to conjoin values with short option names and would be confusing with bundling enabled");
-        SetShortName(snm);
-        return cast(T) this;
-    }
-
-    /// Sugar for adding a single-character short name:
-    auto opCall(this T) (in dchar snm) {
-        return cast(T) Short(snm);
-    }
-
-    /++
-     + Adds a description, which is used in error messages.  It's also used when
-     + syntax summaries are auto-generated, so that we can generate something
-     + maximally descriptive like `--windows <number of windows>`.  Without
-     + this, we'd either generate the somewhat opaque `--windows <windows>`
-     + or have to impose extra typing on the user by renaming the option as
-     + `--number-of-windows`.
-     +
-     + The description needn't be Ascii.
-     +
-     + Only a named option can have a description.  For a positional
-     + argument, the name is never typed by the user and it does double duty
-     + as a description.
-     +/
-
-    auto Description(this T) (in string desc) {
-        assert(!positional, "A positional argument doesn't need a description: use the ordinary name field for that");
-        FArgBase.SetDescription(desc);
-        return cast(T) this;
-    }
-
-    /// Sugar for adding a description:
-    auto opCall(this T) (in string desc) {
-        return cast(T) Description(desc);
-    }
-
-    /// Excludes an argument from auto-generated syntax summaries:
-    auto Undocumented(this T) () {
-        MarkUndocumented();
-        return cast(T) this;
     }
 }
 
