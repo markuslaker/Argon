@@ -1,4 +1,4 @@
-#!/usr/bin/rdmd --shebang -unittest -g -debug
+#!/usr/bin/rdmd --shebang -unittest -g -debug --main
 
 module argon;
 
@@ -1469,10 +1469,10 @@ public:
         test_robust_failure( filename);
     }
 
-    static if (!existent_file.empty)
+    if (!existent_file.empty)
         test_success(existent_file);
 
-    static if (!nonexistent_file.empty)
+    if (!nonexistent_file.empty)
         test_failure(nonexistent_file);
 
     // Remaining tests can be carried out on all platforms, because everyone
@@ -3623,7 +3623,7 @@ unittest {
         }
     }
 
-    static if (!existent_file.empty && !nonexistent_file.empty) {
+    if (!existent_file.empty && !nonexistent_file.empty) {
         test_named_file_arguments;
         test_positional_file_arguments;
     }
